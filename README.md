@@ -16,18 +16,22 @@
 
 ⚡️ Delivers core agent functionality in just **~4,000** lines of code — **99% smaller** than Clawdbot's 430k+ lines.
 
-📏 Real-time line count: **3,428 lines** (run `bash core_agent_lines.sh` to verify anytime)
+📏 Real-time line count: **3,510 lines** (run `bash core_agent_lines.sh` to verify anytime)
 
 ## 📢 News
 
+- **2026-02-09** 💬 Added Slack, Email, and QQ support — nanobot now supports multiple chat platforms!
+- **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
+- **2026-02-07** 🚀 Released v0.1.3.post5 with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
+- **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
 - **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released v0.1.3.post4 with multi-provider & Docker support! Check [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
+- **2026-02-04** 🚀 Released v0.1.3.post4 with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
 - **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
 - **2026-02-02** 🎉 nanobot officially launched! Welcome to try 🐈 nanobot!
 
 ## Key Features of nanobot:
 
-🪶 **Ultra-Lightweight**: Just ~3,400 lines of core agent code — 99% smaller than Clawdbot.
+🪶 **Ultra-Lightweight**: Just ~4,000 lines of core agent code — 99% smaller than Clawdbot.
 
 🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
 
@@ -90,8 +94,7 @@ pip install nanobot-ai
 
 > [!TIP]
 > Set your API key in `~/.nanobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (LLM) · [Brave Search](https://brave.com/search/api/) (optional, for web search)
-> You can also change the model to `minimax/minimax-m2` for lower cost.
+> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [DashScope](https://dashscope.console.aliyun.com) (Qwen) · [Brave Search](https://brave.com/search/api/) (optional, for web search)
 
 **1. Initialize**
 
@@ -101,6 +104,7 @@ nanobot onboard
 
 **2. Configure** (`~/.nanobot/config.json`)
 
+For OpenRouter - recommended for global users:
 ```json
 {
   "providers": {
@@ -112,17 +116,9 @@ nanobot onboard
     "defaults": {
       "model": "anthropic/claude-opus-4-5"
     }
-  },
-  "tools": {
-    "web": {
-      "search": {
-        "apiKey": "BSA-xxx"
-      }
-    }
   }
 }
 ```
-
 
 **3. Chat**
 
@@ -171,7 +167,7 @@ nanobot agent -m "Hello from my local LLM!"
 
 ## 💬 Chat Apps
 
-Talk to your nanobot through Telegram, Discord, WhatsApp, or Feishu — anytime, anywhere.
+Talk to your nanobot through Telegram, Discord, WhatsApp, Feishu, DingTalk, Slack, Email, or QQ — anytime, anywhere.
 
 | Channel | Setup |
 |---------|-------|
@@ -179,6 +175,10 @@ Talk to your nanobot through Telegram, Discord, WhatsApp, or Feishu — anytime,
 | **Discord** | Easy (bot token + intents) |
 | **WhatsApp** | Medium (scan QR) |
 | **Feishu** | Medium (app credentials) |
+| **DingTalk** | Medium (app credentials) |
+| **Slack** | Medium (bot + app tokens) |
+| **Email** | Medium (IMAP/SMTP credentials) |
+| **QQ** | Easy (app credentials) |
 
 <details>
 <summary><b>Telegram</b> (Recommended)</summary>
@@ -202,7 +202,9 @@ Talk to your nanobot through Telegram, Discord, WhatsApp, or Feishu — anytime,
 }
 ```
 
-> Get your user ID from `@userinfobot` on Telegram.
+> You can find your **User ID** in Telegram settings. It is shown as `@yourUserId`.
+> Copy this value **without the `@` symbol** and paste it into the config file.
+
 
 **3. Run**
 
@@ -298,10 +300,6 @@ nanobot gateway
 
 Uses **WebSocket** long connection — no public IP required.
 
-```bash
-pip install nanobot-ai[feishu]
-```
-
 **1. Create a Feishu bot**
 - Visit [Feishu Open Platform](https://open.feishu.cn/app)
 - Create a new app → Enable **Bot** capability
@@ -342,14 +340,189 @@ nanobot gateway
 
 </details>
 
+<details>
+<summary><b>QQ (QQ单聊)</b></summary>
+
+Uses **botpy SDK** with WebSocket — no public IP required. Currently supports **private messages only**.
+
+**1. Register & create bot**
+- Visit [QQ Open Platform](https://q.qq.com) → Register as a developer (personal or enterprise)
+- Create a new bot application
+- Go to **开发设置 (Developer Settings)** → copy **AppID** and **AppSecret**
+
+**2. Set up sandbox for testing**
+- In the bot management console, find **沙箱配置 (Sandbox Config)**
+- Under **在消息列表配置**, click **添加成员** and add your own QQ number
+- Once added, scan the bot's QR code with mobile QQ → open the bot profile → tap "发消息" to start chatting
+
+**3. Configure**
+
+> - `allowFrom`: Leave empty for public access, or add user openids to restrict. You can find openids in the nanobot logs when a user messages the bot.
+> - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
+
+```json
+{
+  "channels": {
+    "qq": {
+      "enabled": true,
+      "appId": "YOUR_APP_ID",
+      "secret": "YOUR_APP_SECRET",
+      "allowFrom": []
+    }
+  }
+}
+```
+
+**4. Run**
+
+```bash
+nanobot gateway
+```
+
+Now send a message to the bot from QQ — it should respond!
+
+</details>
+
+<details>
+<summary><b>DingTalk (钉钉)</b></summary>
+
+Uses **Stream Mode** — no public IP required.
+
+**1. Create a DingTalk bot**
+- Visit [DingTalk Open Platform](https://open-dev.dingtalk.com/)
+- Create a new app -> Add **Robot** capability
+- **Configuration**:
+  - Toggle **Stream Mode** ON
+- **Permissions**: Add necessary permissions for sending messages
+- Get **AppKey** (Client ID) and **AppSecret** (Client Secret) from "Credentials"
+- Publish the app
+
+**2. Configure**
+
+```json
+{
+  "channels": {
+    "dingtalk": {
+      "enabled": true,
+      "clientId": "YOUR_APP_KEY",
+      "clientSecret": "YOUR_APP_SECRET",
+      "allowFrom": []
+    }
+  }
+}
+```
+
+> `allowFrom`: Leave empty to allow all users, or add `["staffId"]` to restrict access.
+
+**3. Run**
+
+```bash
+nanobot gateway
+```
+
+</details>
+
+<details>
+<summary><b>Slack</b></summary>
+
+Uses **Socket Mode** — no public URL required.
+
+**1. Create a Slack app**
+- Go to [Slack API](https://api.slack.com/apps) → **Create New App** → "From scratch"
+- Pick a name and select your workspace
+
+**2. Configure the app**
+- **Socket Mode**: Toggle ON → Generate an **App-Level Token** with `connections:write` scope → copy it (`xapp-...`)
+- **OAuth & Permissions**: Add bot scopes: `chat:write`, `reactions:write`, `app_mentions:read`
+- **Event Subscriptions**: Toggle ON → Subscribe to bot events: `message.im`, `message.channels`, `app_mention` → Save Changes
+- **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
+- **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
+
+**3. Configure nanobot**
+
+```json
+{
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "botToken": "xoxb-...",
+      "appToken": "xapp-...",
+      "groupPolicy": "mention"
+    }
+  }
+}
+```
+
+**4. Run**
+
+```bash
+nanobot gateway
+```
+
+DM the bot directly or @mention it in a channel — it should respond!
+
+> [!TIP]
+> - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels).
+> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
+
+</details>
+
+<details>
+<summary><b>Email</b></summary>
+
+Give nanobot its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
+
+**1. Get credentials (Gmail example)**
+- Create a dedicated Gmail account for your bot (e.g. `my-nanobot@gmail.com`)
+- Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
+- Use this app password for both IMAP and SMTP
+
+**2. Configure**
+
+> - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
+> - `allowFrom`: Leave empty to accept emails from anyone, or restrict to specific senders.
+> - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
+> - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
+
+```json
+{
+  "channels": {
+    "email": {
+      "enabled": true,
+      "consentGranted": true,
+      "imapHost": "imap.gmail.com",
+      "imapPort": 993,
+      "imapUsername": "my-nanobot@gmail.com",
+      "imapPassword": "your-app-password",
+      "smtpHost": "smtp.gmail.com",
+      "smtpPort": 587,
+      "smtpUsername": "my-nanobot@gmail.com",
+      "smtpPassword": "your-app-password",
+      "fromAddress": "my-nanobot@gmail.com",
+      "allowFrom": ["your-real-email@gmail.com"]
+    }
+  }
+}
+```
+
+
+**3. Run**
+
+```bash
+nanobot gateway
+```
+
+</details>
+
 ## ⚙️ Configuration
 
 Config file: `~/.nanobot/config.json`
 
 ### Providers
 
-> [!NOTE]
-> Groq provides free voice transcription via Whisper. If configured, Telegram voice messages will be automatically transcribed.
+> [!TIP]
+> - **Groq** provides free voice transcription via Whisper. If configured, Telegram voice messages will be automatically transcribed.
+> - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
 
 | Provider | Purpose | Get API Key |
 |----------|---------|-------------|
@@ -359,11 +532,59 @@ Config file: `~/.nanobot/config.json`
 | `deepseek` | LLM (DeepSeek direct) | [platform.deepseek.com](https://platform.deepseek.com) |
 | `groq` | LLM + **Voice transcription** (Whisper) | [console.groq.com](https://console.groq.com) |
 | `gemini` | LLM (Gemini direct) | [aistudio.google.com](https://aistudio.google.com) |
+| `aihubmix` | LLM (API gateway, access to all models) | [aihubmix.com](https://aihubmix.com) |
+| `dashscope` | LLM (Qwen) | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
+| `moonshot` | LLM (Moonshot/Kimi) | [platform.moonshot.cn](https://platform.moonshot.cn) |
+| `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
+| `vllm` | LLM (local, any OpenAI-compatible server) | — |
+
+<details>
+<summary><b>Adding a New Provider (Developer Guide)</b></summary>
+
+nanobot uses a **Provider Registry** (`nanobot/providers/registry.py`) as the single source of truth.
+Adding a new provider only takes **2 steps** — no if-elif chains to touch.
+
+**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `nanobot/providers/registry.py`:
+
+```python
+ProviderSpec(
+    name="myprovider",                   # config field name
+    keywords=("myprovider", "mymodel"),  # model-name keywords for auto-matching
+    env_key="MYPROVIDER_API_KEY",        # env var for LiteLLM
+    display_name="My Provider",          # shown in `nanobot status`
+    litellm_prefix="myprovider",         # auto-prefix: model → myprovider/model
+    skip_prefixes=("myprovider/",),      # don't double-prefix
+)
+```
+
+**Step 2.** Add a field to `ProvidersConfig` in `nanobot/config/schema.py`:
+
+```python
+class ProvidersConfig(BaseModel):
+    ...
+    myprovider: ProviderConfig = ProviderConfig()
+```
+
+That's it! Environment variables, model prefixing, config matching, and `nanobot status` display will all work automatically.
+
+**Common `ProviderSpec` options:**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `litellm_prefix` | Auto-prefix model names for LiteLLM | `"dashscope"` → `dashscope/qwen-max` |
+| `skip_prefixes` | Don't prefix if model already starts with these | `("dashscope/", "openrouter/")` |
+| `env_extras` | Additional env vars to set | `(("ZHIPUAI_API_KEY", "{api_key}"),)` |
+| `model_overrides` | Per-model parameter overrides | `(("kimi-k2.5", {"temperature": 1.0}),)` |
+| `is_gateway` | Can route any model (like OpenRouter) | `True` |
+| `detect_by_key_prefix` | Detect gateway by API key prefix | `"sk-or-"` |
+| `detect_by_base_keyword` | Detect gateway by API base URL | `"openrouter"` |
+| `strip_model_prefix` | Strip existing prefix before re-prefixing | `True` (for AiHubMix) |
+
+</details>
 
 
 ### Security
 
-> [!TIP]
 > For production deployments, set `"restrictToWorkspace": true` in your config to sandbox the agent.
 
 | Option | Default | Description |
@@ -379,10 +600,14 @@ Config file: `~/.nanobot/config.json`
 | `nanobot onboard` | Initialize config & workspace |
 | `nanobot agent -m "..."` | Chat with the agent |
 | `nanobot agent` | Interactive chat mode |
+| `nanobot agent --no-markdown` | Show plain-text replies |
+| `nanobot agent --logs` | Show runtime logs during chat |
 | `nanobot gateway` | Start the gateway |
 | `nanobot status` | Show status |
 | `nanobot channels login` | Link WhatsApp (scan QR) |
 | `nanobot channels status` | Show channel status |
+
+Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
 
 <details>
 <summary><b>Scheduled Tasks (Cron)</b></summary>
@@ -458,7 +683,7 @@ PRs welcome! The codebase is intentionally small and readable. 🤗
 - [ ] **Multi-modal** — See and hear (images, voice, video)
 - [ ] **Long-term memory** — Never forget important context
 - [ ] **Better reasoning** — Multi-step planning and reflection
-- [ ] **More integrations** — Discord, Slack, email, calendar
+- [ ] **More integrations** — Calendar and more
 - [ ] **Self-improvement** — Learn from feedback and mistakes
 
 ### Contributors
