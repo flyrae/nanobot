@@ -77,6 +77,18 @@ class ChannelManager:
                 logger.info("Feishu channel enabled")
             except ImportError as e:
                 logger.warning(f"Feishu channel not available: {e}")
+
+        # WS client channel
+        if self.config.channels.ws_client.enabled:
+            try:
+                from nanobot.channels.ws_client import WsClientChannel
+                self.channels["ws_client"] = WsClientChannel(
+                    self.config.channels.ws_client, self.bus
+                )
+                logger.info("WS client channel enabled")
+            except ImportError as e:
+                logger.warning(f"WS client channel not available: {e}")
+
     
     async def start_all(self) -> None:
         """Start WhatsApp channel and the outbound dispatcher."""
@@ -127,6 +139,11 @@ class ChannelManager:
                     timeout=1.0
                 )
                 
+                logger.debug(
+                    f"Dispatching outbound: channel={msg.channel}, "
+                    f"media_count={len(msg.media) if msg.media else 0}, "
+                    f"content={msg.content[:80]!r}"
+                )
                 channel = self.channels.get(msg.channel)
                 if channel:
                     try:

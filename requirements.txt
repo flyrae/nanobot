@@ -1,0 +1,58 @@
+# Core dependencies for nanobot-ai
+# Generated from pyproject.toml
+
+# CLI
+typer>=0.9.0
+
+# LLM provider
+litellm>=1.0.0
+openai>=1.0.0
+
+# Data validation
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# WebSocket
+websockets>=12.0
+websocket-client>=1.6.0
+
+# HTTP client
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# Desktop automation
+pyautogui>=0.9.54
+mss>=9.0.1
+pillow>=10.0.0
+
+# Logging
+loguru>=0.7.0
+
+# Web scraping
+readability-lxml>=0.8.0
+lxml>=4.9.0
+lxml-html-clean>=0.4.0
+beautifulsoup4>=4.12.0
+
+# Terminal UI
+rich>=13.0.0
+
+# Cron scheduling
+croniter>=2.0.0
+
+# Messaging platforms
+python-telegram-bot>=21.0
+lark-oapi>=1.0.0
+
+# Environment
+dotenv>=0.9.0
+python-dotenv>=1.0.0
+
+# Utilities
+pyyaml>=6.0.0
+requests>=2.31.0
+
+# Development dependencies (optional)
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+# ruff>=0.1.0

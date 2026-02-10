@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -185,6 +186,7 @@ class AgentLoop:
         # Agent loop
         iteration = 0
         final_content = None
+        pending_media: list[str] = []  # Collect media files from tool outputs
         
         while iteration < self.max_iterations:
             iteration += 1
@@ -222,6 +224,13 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+                    # Collect any image file paths from tool output
+                    found = self._extract_media_paths(result)
+                    if found:
+                        logger.info(f"Collected media from {tool_call.name}: {found}")
+                        pending_media.extend(found)
+                    else:
+                        logger.debug(f"No media paths found in {tool_call.name} output ({len(result)} chars)")
             else:
                 # No tool calls, we're done
                 final_content = response.content
@@ -229,6 +238,16 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
+        
+        # Also scan the final text response for image paths (agent may mention
+        # previously-created files without calling a tool this turn)
+        if final_content:
+            from_text = self._extract_media_paths(final_content)
+            if from_text:
+                logger.info(f"Collected media from final response text: {from_text}")
+                for p in from_text:
+                    if p not in pending_media:
+                        pending_media.append(p)
         
         # Save to session
         session.add_message("user", msg.content)
@@ -238,7 +257,8 @@ class AgentLoop:
         return OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
-            content=final_content
+            content=final_content,
+            media=pending_media,
         )
     
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
@@ -367,3 +387,56 @@ class AgentLoop:
         
         response = await self._process_message(msg)
         return response.content if response else ""
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    # Regex for image file paths that appear in tool output or LLM text.
+    # Handles:
+    #   - Absolute Windows paths: C:\path  or  C:\\path
+    #   - Absolute POSIX paths:   /home/user/file.png
+    #   - Relative paths:         screenshots/screen.png  or  ./foo/bar.png
+    _IMAGE_PATH_RE = re.compile(
+        r"(?:[A-Za-z]:[\\]{1,2}|/|\./)?[\w][\\/.:\w\-]*\.(?:png|jpg|jpeg|gif|bmp|webp)",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _normalize_path(raw: str) -> Path:
+        """Normalise a matched path string to a real filesystem path.
+
+        LLMs often emit ``C:\\\\Users\\\\...`` (double-escaped backslashes)
+        inside Markdown.  We collapse them so ``Path`` resolves correctly.
+        Also strips surrounding backticks and quotes.
+        """
+        cleaned = raw.strip("`\"' ")
+        return Path(cleaned.replace("\\\\", "\\"))
+
+    def _extract_media_paths(self, text: str) -> list[str]:
+        """Extract existing image file paths from text.
+
+        Scans *text* (tool output **or** LLM response) for image file paths
+        and returns only those that point to real, non-empty files.
+        Relative paths are resolved against the workspace directory.
+        """
+        paths: list[str] = []
+        for match in self._IMAGE_PATH_RE.findall(text):
+            p = self._normalize_path(match)
+            # Build a list of candidate paths to check:
+            # 1. The path as-is (works for absolute paths)
+            # 2. Resolved against workspace (works for relative paths)
+            candidates = [p]
+            if not p.is_absolute():
+                candidates.append(self.workspace / p)
+            for candidate in candidates:
+                try:
+                    if candidate.exists() and candidate.is_file() and candidate.stat().st_size > 0:
+                        resolved = str(candidate.resolve())
+                        if resolved not in paths:
+                            paths.append(resolved)
+                            logger.debug(f"_extract_media_paths: found {resolved} (from {match!r})")
+                        break
+                except OSError:
+                    continue
+        return paths

@@ -68,8 +68,19 @@ web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 ### message
 Send a message to the user (used internally).
 ```
-message(content: str, channel: str = None, chat_id: str = None) -> str
+message(content: str, channel: str = None, chat_id: str = None, media: list[str] = None) -> str
 ```
+
+## Media & Screenshots
+
+When any tool (e.g. `exec`) produces output containing image file paths (`.png`, `.jpg`, etc.),
+the agent loop **automatically** attaches them to the outbound message as inline images.
+
+To take a screenshot, use the **windows-computer-use** skill via `exec`:
+```
+exec(command="python nanobot/skills/windows-computer-use/scripts/computer_use.py screenshot --path screenshots/screen.png")
+```
+The file path will appear in stdout, and the image will be sent to the user as an inline image in the chat. No extra flags needed.
 
 ## Background Tasks
 

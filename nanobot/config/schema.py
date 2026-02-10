@@ -39,12 +39,26 @@ class DiscordConfig(BaseModel):
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
 
 
+class WsClientConfig(BaseModel):
+    """WebSocket client channel configuration."""
+    enabled: bool = False
+    url: str = "ws://localhost:19090/ws"
+    bot_name: str = "nanobot"
+    default_room: str = "lobby"
+    reconnect_interval: int = 5
+    allow_from: list[str] = Field(default_factory=list)
+    ignore_self: bool = True
+    send_media_base64: bool = True
+    media_max_bytes: int = 2 * 1024 * 1024
+
+
 class ChannelsConfig(BaseModel):
     """Configuration for chat channels."""
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
+    ws_client: WsClientConfig = Field(default_factory=WsClientConfig)
 
 
 class AgentDefaults(BaseModel):
@@ -54,6 +68,7 @@ class AgentDefaults(BaseModel):
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
+    provider_type: str = "litellm"  # "litellm" or "openai"
 
 
 class AgentsConfig(BaseModel):
@@ -176,6 +191,32 @@ class Config(BaseSettings):
             return self.providers.vllm.api_base
         return None
     
+    def create_provider(self):
+        """Create the appropriate LLM provider based on config."""
+        from nanobot.providers.litellm_provider import LiteLLMProvider
+        from nanobot.providers.openai_provider import OpenAIProvider
+
+        model = self.agents.defaults.model
+        provider_type = self.agents.defaults.provider_type
+
+        # Use _match_provider to get the full ProviderConfig (api_key + api_base)
+        matched = self._match_provider(model)
+        api_key = matched.api_key if matched else self.get_api_key()
+        api_base = matched.api_base if matched else self.get_api_base()
+
+        if provider_type == "openai":
+            return OpenAIProvider(
+                api_key=api_key,
+                api_base=api_base,
+                default_model=model,
+            )
+        else:
+            return LiteLLMProvider(
+                api_key=api_key,
+                api_base=api_base,
+                default_model=model,
+            )
+
     class Config:
         env_prefix = "NANOBOT_"
         env_nested_delimiter = "__"

@@ -103,6 +103,15 @@ IMPORTANT: When responding to direct questions or conversations, reply directly 
 Only use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).
 For normal conversation, just respond with text - do not call the message tool.
 
+IMPORTANT — Screenshots & Images:
+- Any image file paths (png/jpg/etc.) that appear in tool output or your response text are
+  **automatically sent to the user as inline images** in the chat. You do NOT need to tell
+  the user to open a file explorer — they will see the image directly.
+- To take a screenshot, use `exec` to run the bundled script:
+  `python nanobot/skills/windows-computer-use/scripts/computer_use.py screenshot --path screenshots/screen.png`
+- Do NOT write your own PowerShell/Python screenshot code. Always use the script above.
+- The script uses `mss` for silent capture (no snipping tool popup).
+
 Always be helpful, accurate, and concise. When using tools, explain what you're doing.
 When remembering something, write to {workspace_path}/memory/MEMORY.md"""
     
