@@ -98,7 +98,7 @@ class EmailChannel(BaseChannel):
                         metadata=item.get("metadata", {}),
                     )
             except Exception as e:
-                logger.error(f"Email polling error: {e}")
+                logger.error("Email polling error: {}", e)
 
             await asyncio.sleep(poll_seconds)
 
@@ -132,6 +132,15 @@ class EmailChannel(BaseChannel):
             logger.warning("Email channel missing recipient address")
             return
 
+        # Determine if this is a reply (recipient has sent us an email before)
+        is_reply = to_addr in self._last_subject_by_chat
+        force_send = bool((msg.metadata or {}).get("force_send"))
+
+        # autoReplyEnabled only controls automatic replies, not proactive sends
+        if is_reply and not self.config.auto_reply_enabled and not force_send:
+            logger.info("Skip automatic email reply to {}: auto_reply_enabled is false", to_addr)
+            return
+
         base_subject = self._last_subject_by_chat.get(to_addr, "nanobot reply")
         subject = self._reply_subject(base_subject)
         if msg.metadata and isinstance(msg.metadata.get("subject"), str):
@@ -161,7 +170,7 @@ class EmailChannel(BaseChannel):
             if media_files:
                 logger.info(f"Sent email to {to_addr} with {len(media_files)} attachment(s)")
         except Exception as e:
-            logger.error(f"Error sending email to {to_addr}: {e}")
+            logger.error("Error sending email to {}: {}", to_addr, e)
             raise
 
     def _validate_config(self) -> bool:
@@ -180,7 +189,7 @@ class EmailChannel(BaseChannel):
             missing.append("smtp_password")
 
         if missing:
-            logger.error(f"Email channel not configured, missing: {', '.join(missing)}")
+            logger.error("Email channel not configured, missing: {}", ', '.join(missing))
             return False
         return True
 
@@ -345,7 +354,8 @@ class EmailChannel(BaseChannel):
                     self._processed_uids.add(uid)
                     # mark_seen is the primary dedup; this set is a safety net
                     if len(self._processed_uids) > self._MAX_PROCESSED_UIDS:
-                        self._processed_uids.clear()
+                        # Evict a random half to cap memory; mark_seen is the primary dedup
+                        self._processed_uids = set(list(self._processed_uids)[len(self._processed_uids) // 2:])
 
                 if mark_seen:
                     client.store(imap_id, "+FLAGS", "\\Seen")
