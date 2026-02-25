@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import io
 import json
 import mimetypes
 from pathlib import Path
@@ -110,10 +111,20 @@ class WsClientChannel(BaseChannel):
 
             file_size = path.stat().st_size
             if file_size > self.config.media_max_bytes:
-                logger.warning(
-                    f"_encode_media: file too large: {path} "
-                    f"({file_size} bytes > {self.config.media_max_bytes} limit)"
-                )
+                # Try to compress the image instead of dropping it
+                compressed = self._compress_image(path, self.config.media_max_bytes)
+                if compressed:
+                    cmime, cdata = compressed
+                    encoded.append(f"data:{cmime};base64,{cdata}")
+                    logger.info(
+                        f"_encode_media: compressed {path} "
+                        f"({file_size} bytes -> ~{len(cdata) * 3 // 4} bytes)"
+                    )
+                else:
+                    logger.warning(
+                        f"_encode_media: file too large and compression failed: {path} "
+                        f"({file_size} bytes > {self.config.media_max_bytes} limit)"
+                    )
                 continue
 
             mime, _ = mimetypes.guess_type(path.name)
@@ -125,6 +136,54 @@ class WsClientChannel(BaseChannel):
             logger.info(f"_encode_media: encoded {path} ({file_size} bytes, {mime})")
 
         return encoded
+
+    @staticmethod
+    def _compress_image(
+        path: Path,
+        max_bytes: int,
+        *,
+        min_quality: int = 30,
+        max_dimension: int = 1920,
+    ) -> tuple[str, str] | None:
+        """Compress an image to fit within *max_bytes*.
+
+        Tries progressive JPEG quality reduction and, if needed, down-scaling.
+        Returns ``(mime, base64_data)`` on success, or ``None`` if compression
+        cannot bring the file under the limit.
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            logger.debug("_compress_image: Pillow not installed, cannot compress")
+            return None
+
+        try:
+            img = Image.open(path)
+            # Convert RGBA/palette to RGB for JPEG
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
+
+            # Down-scale if either dimension exceeds max_dimension
+            w, h = img.size
+            if max(w, h) > max_dimension:
+                ratio = max_dimension / max(w, h)
+                img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+                logger.debug(f"_compress_image: resized {w}x{h} -> {img.size[0]}x{img.size[1]}")
+
+            # Try decreasing JPEG quality until under limit
+            for quality in range(85, min_quality - 1, -5):
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=quality, optimize=True)
+                if buf.tell() <= max_bytes:
+                    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                    logger.debug(f"_compress_image: quality={quality}, size={buf.tell()} bytes")
+                    return ("image/jpeg", b64)
+
+            logger.debug(f"_compress_image: still too large after quality={min_quality}")
+            return None
+        except Exception as exc:
+            logger.warning(f"_compress_image: error processing {path}: {exc}")
+            return None
 
     async def _handle_server_message(self, raw: str) -> None:
         try:

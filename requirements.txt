@@ -48,6 +48,10 @@ lark-oapi>=1.0.0
 dotenv>=0.9.0
 python-dotenv>=1.0.0
 
+# Browser automation (optional - for browser-use skill)
+# pip install browser-use
+# python -m playwright install chromium
+
 # Utilities
 pyyaml>=6.0.0
 requests>=2.31.0

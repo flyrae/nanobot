@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Nanobot IM</title>
-    <!-- markdown & code highlight -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css" />
-    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+    <!-- markdown & code highlight (local, offline-ready) -->
+    <script src="/static/marked.min.js"></script>
+    <link rel="stylesheet" href="/static/github.min.css" />
+    <script src="/static/highlight.min.js"></script>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -401,14 +401,25 @@
         const body = document.createElement("div");
         if (role === "bot") {
           body.className = "md-body";
-          body.innerHTML = renderMarkdown(payload.content);
+          if (payload.content) {
+            body.innerHTML = renderMarkdown(payload.content);
+          }
         } else {
           body.textContent = payload.content;
         }
 
-        wrapper.append(meta, body);
+        // Only add meta + body when there is text content, or no media
+        const hasMedia = Array.isArray(payload.media_base64) && payload.media_base64.some(
+          (item) => typeof item === "string" && item.startsWith("data:image")
+        );
+        if (payload.content) {
+          wrapper.append(meta, body);
+        } else if (!hasMedia) {
+          wrapper.append(meta, body);
+        }
+        // If content is empty but has media, skip text bubble — show images only
 
-        if (Array.isArray(payload.media_base64)) {
+        if (hasMedia) {
           payload.media_base64.forEach((item) => {
             if (typeof item === "string" && item.startsWith("data:image")) {
               const img = document.createElement("img");

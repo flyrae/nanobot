@@ -67,6 +67,7 @@ class EmailConfig(BaseModel):
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     from_address: str = ""
+    ssl_verify: bool = False  # Skip SSL certificate verification by default
 
     # Behavior
     auto_reply_enabled: bool = True  # If false, inbound email is read but no automatic reply is sent
@@ -75,6 +76,7 @@ class EmailConfig(BaseModel):
     max_body_chars: int = 12000
     subject_prefix: str = "Re: "
     allow_from: list[str] = Field(default_factory=list)  # Allowed sender email addresses
+    media_max_bytes: int = 10 * 1024 * 1024  # 10 MB per attachment
 
 
 class SlackDMConfig(BaseModel):
@@ -115,7 +117,7 @@ class WsClientConfig(BaseModel):
     allow_from: list[str] = Field(default_factory=list)
     ignore_self: bool = True
     send_media_base64: bool = True
-    media_max_bytes: int = 2 * 1024 * 1024
+    media_max_bytes: int = 5 * 1024 * 1024  # 5 MB
 
 
 class ChannelsConfig(BaseModel):
@@ -190,10 +192,23 @@ class ExecToolConfig(BaseModel):
     timeout: int = 60
 
 
+class BrowserUseConfig(BaseModel):
+    """Browser-use skill configuration."""
+    model: str = ""  # LLM model for browser-use agent (e.g. "deepseek/deepseek-chat"). Empty = use agents.defaults.model
+    api_key: str = ""  # API key override. Empty = auto-detect from providers config
+    api_base: str = ""  # API base URL override. Empty = use provider default
+    headless: bool = True  # Run browser in headless mode
+    browser_mode: str = "chromium"  # "chromium", "real", or "remote"
+    max_steps: int = 20  # Max agent steps for autonomous tasks
+    chrome_profile: str = ""  # Chrome profile name (for "real" browser mode)
+    screenshot_dir: str = ""  # Directory to save screenshots. Empty = ~/.nanobot/screenshots
+
+
 class ToolsConfig(BaseModel):
     """Tools configuration."""
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    browser_use: BrowserUseConfig = Field(default_factory=BrowserUseConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 
@@ -266,8 +281,8 @@ class Config(BaseSettings):
         model = self.agents.defaults.model
         provider_type = self.agents.defaults.provider_type
 
-        # Use _match_provider to get the full ProviderConfig (api_key + api_base)
-        matched = self._match_provider(model)
+        # _match_provider returns (ProviderConfig | None, name | None)
+        matched, name = self._match_provider(model)
         api_key = matched.api_key if matched else self.get_api_key()
         api_base = matched.api_base if matched else self.get_api_base()
 
@@ -282,6 +297,8 @@ class Config(BaseSettings):
                 api_key=api_key,
                 api_base=api_base,
                 default_model=model,
+                extra_headers=matched.extra_headers if matched else None,
+                provider_name=name,
             )
 
     class Config:

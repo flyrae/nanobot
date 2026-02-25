@@ -296,14 +296,22 @@ This file stores important information that should persist across sessions.
 
 
 def _make_provider(config):
-    """Create LiteLLMProvider from config. Exits if no API key found."""
+    """Create LLM provider from config. Respects agents.defaults.provider_type."""
     from nanobot.providers.litellm_provider import LiteLLMProvider
+    from nanobot.providers.openai_provider import OpenAIProvider
     p = config.get_provider()
     model = config.agents.defaults.model
     if not (p and p.api_key) and not model.startswith("bedrock/"):
         console.print("[red]Error: No API key configured.[/red]")
         console.print("Set one in ~/.nanobot/config.json under providers section")
         raise typer.Exit(1)
+    provider_type = config.agents.defaults.provider_type
+    if provider_type == "openai":
+        return OpenAIProvider(
+            api_key=p.api_key if p else None,
+            api_base=config.get_api_base(),
+            default_model=model,
+        )
     return LiteLLMProvider(
         api_key=p.api_key if p else None,
         api_base=config.get_api_base(),
@@ -343,6 +351,40 @@ def gateway(
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
+    
+    # Print configuration summary
+    console.print("\n[bold cyan]── Configuration ──[/bold cyan]")
+    console.print(f"  Model:     [green]{config.agents.defaults.model}[/green]")
+    provider_name = config.get_provider_name() or "auto"
+    provider_type = config.agents.defaults.provider_type
+    console.print(f"  Provider:  [green]{provider_name}[/green] (type: {provider_type})")
+    api_base = config.get_api_base()
+    if api_base:
+        console.print(f"  API Base:  [dim]{api_base}[/dim]")
+    console.print(f"  Workspace: [dim]{config.workspace_path}[/dim]")
+    console.print(f"  Port:      [dim]{port}[/dim]")
+    console.print(f"  Max Iterations: [dim]{config.agents.defaults.max_tool_iterations}[/dim]")
+    # Enabled channels summary
+    enabled_ch = [
+        name for name, ch_cfg in [
+            ("whatsapp", config.channels.whatsapp),
+            ("telegram", config.channels.telegram),
+            ("discord", config.channels.discord),
+            ("feishu", config.channels.feishu),
+            ("dingtalk", config.channels.dingtalk),
+            ("email", config.channels.email),
+            ("slack", config.channels.slack),
+            ("qq", config.channels.qq),
+            ("ws_client", config.channels.ws_client),
+        ] if getattr(ch_cfg, "enabled", False)
+    ]
+    if enabled_ch:
+        console.print(f"  Channels:  [green]{', '.join(enabled_ch)}[/green]")
+    else:
+        console.print(f"  Channels:  [yellow]none[/yellow]")
+    if config.tools.restrict_to_workspace:
+        console.print(f"  Sandbox:   [yellow]restricted to workspace[/yellow]")
+    console.print()
     
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"

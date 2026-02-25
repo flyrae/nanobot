@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,14 @@ from typing import Any
 from uuid import uuid4
 
 from aiohttp import web
+
+
+def _base_dir() -> Path:
+    """Return base directory, works both in normal Python and PyInstaller bundle."""
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent
 
 
 @dataclass
@@ -25,7 +34,7 @@ class IMServer:
         self._lock = asyncio.Lock()
 
     async def index(self, request: web.Request) -> web.Response:
-        html_path = Path(__file__).parent / "static" / "index.html"
+        html_path = _base_dir() / "static" / "index.html"
         return web.FileResponse(path=html_path)
 
     async def health(self, request: web.Request) -> web.Response:
@@ -128,6 +137,9 @@ def create_app() -> web.Application:
             web.get("/ws", server.websocket_handler),
         ]
     )
+    # Serve static files (JS/CSS) for offline support
+    static_dir = _base_dir() / "static"
+    app.router.add_static("/static/", path=static_dir, name="static")
     return app
 
 

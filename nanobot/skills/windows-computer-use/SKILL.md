@@ -1,14 +1,18 @@
 ---
 name: windows-computer-use
-description: "Automate Windows apps using a safe combo of PowerShell (system) + pyautogui (UI). Use for launching apps, focusing windows, typing, clicking, hotkeys, and screenshots with optional confirmation."
+description: "Desktop / native-app automation ONLY — launch apps, focus windows, click screen coordinates, type text, send hotkeys, and take full desktop screenshots via PowerShell + pyautogui. Use ONLY for Windows desktop apps and OS-level tasks. For web-page automation (URLs, forms, DOM), use browser-use instead."
 metadata: {"nanobot":{"emoji":"🖥️","requires":{"bins":["powershell","pwsh"]}}}
 ---
 
 # Windows Computer-Use Skill
 
-Use this skill to automate Windows GUI tasks with safety checks. It combines:
+Use this skill to automate **Windows desktop GUI tasks** with safety checks. It combines:
 - **PowerShell** for app launching and window focus
 - **pyautogui** for mouse/keyboard/screenshot
+
+> ⚠️ **This skill is for desktop applications and OS-level tasks ONLY.** For web-page
+> automation (navigating URLs, filling forms, clicking DOM elements), use the
+> **browser-use** skill instead. Do NOT use this skill to interact with web content.
 
 ## How to run
 

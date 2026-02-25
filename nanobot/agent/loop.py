@@ -189,9 +189,13 @@ class AgentLoop:
         iteration = 0
         final_content = None
         pending_media: list[str] = []  # Collect media files from tool outputs
+        streamed_media: set[str] = set()  # Track already-streamed images
         
         while iteration < self.max_iterations:
             iteration += 1
+            # Reset per-iteration media so only the LAST iteration's
+            # screenshots are sent – intermediate captures are discarded.
+            iteration_media: list[str] = []
             
             # Call LLM
             response = await self.provider.chat(
@@ -231,9 +235,23 @@ class AgentLoop:
                     found = self._extract_media_paths(result)
                     if found:
                         logger.info(f"Collected media from {tool_call.name}: {found}")
-                        pending_media.extend(found)
+                        for p in found:
+                            if p not in iteration_media:
+                                iteration_media.append(p)
+                        # Stream new screenshots to user immediately so they
+                        # can see intermediate progress (e.g. browser-use steps).
+                        # Skip streaming for batch-oriented channels (email)
+                        # where each push would generate a separate message.
+                        new_media = [p for p in found if p not in streamed_media]
+                        if new_media and msg.channel not in self._BATCH_CHANNELS:
+                            await self._send_media_immediately(
+                                new_media, msg.channel, msg.chat_id,
+                            )
+                            streamed_media.update(new_media)
                     else:
                         logger.debug(f"No media paths found in {tool_call.name} output ({len(result)} chars)")
+                # Keep only this iteration's media (discard previous iterations')
+                pending_media = iteration_media
             else:
                 # No tool calls, we're done
                 final_content = response.content
@@ -251,6 +269,10 @@ class AgentLoop:
                 for p in from_text:
                     if p not in pending_media:
                         pending_media.append(p)
+        
+        # Remove already-streamed media to avoid duplicate images in chat
+        if streamed_media:
+            pending_media = [p for p in pending_media if p not in streamed_media]
         
         # Log response preview
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
@@ -401,6 +423,30 @@ class AgentLoop:
     # Helpers
     # ------------------------------------------------------------------
 
+    async def _send_media_immediately(
+        self,
+        media_paths: list[str],
+        channel: str,
+        chat_id: str,
+    ) -> None:
+        """Push screenshot(s) to the user right away (streaming preview).
+
+        This is called during the agent loop whenever a tool produces an image.
+        It lets the user see browser-use / computer-use screenshots in
+        real-time instead of waiting for the full response.
+        """
+        try:
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="",
+                media=list(media_paths),
+                metadata={"streaming_media": True},
+            ))
+            logger.debug(f"Streamed {len(media_paths)} media to {channel}:{chat_id}")
+        except Exception as exc:
+            logger.warning(f"Failed to stream media: {exc}")
+
     # Regex for image file paths that appear in tool output or LLM text.
     # Handles:
     #   - Absolute Windows paths: C:\path  or  C:\\path
@@ -410,6 +456,11 @@ class AgentLoop:
         r"(?:[A-Za-z]:[\\]{1,2}|/|\./)?[\w][\\/.:\w\-]*\.(?:png|jpg|jpeg|gif|bmp|webp)",
         re.IGNORECASE,
     )
+
+    # Channels that should NOT receive streaming/intermediate media pushes.
+    # These channels are "batch-oriented" — each send() is expensive (e.g.
+    # a whole email), so media should only be attached to the final reply.
+    _BATCH_CHANNELS: frozenset[str] = frozenset({"email"})
 
     @staticmethod
     def _normalize_path(raw: str) -> Path:

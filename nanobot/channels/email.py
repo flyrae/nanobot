@@ -1,8 +1,11 @@
 """Email channel implementation using IMAP polling + SMTP replies."""
 
 import asyncio
+import base64
 import html
 import imaplib
+import io
+import mimetypes
 import re
 import smtplib
 import ssl
@@ -12,6 +15,7 @@ from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import parseaddr
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -103,9 +107,15 @@ class EmailChannel(BaseChannel):
         self._running = False
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send email via SMTP."""
+        """Send email via SMTP, with optional media attachments."""
         if not self.config.consent_granted:
             logger.warning("Skip email send: consent_granted is false")
+            return
+
+        # Skip streaming/intermediate media pushes — email should only send
+        # the final consolidated reply, not one email per screenshot step.
+        if (msg.metadata or {}).get("streaming_media"):
+            logger.debug("Email channel: skipping streaming media push (will attach in final reply)")
             return
 
         force_send = bool((msg.metadata or {}).get("force_send"))
@@ -133,7 +143,13 @@ class EmailChannel(BaseChannel):
         email_msg["From"] = self.config.from_address or self.config.smtp_username or self.config.imap_username
         email_msg["To"] = to_addr
         email_msg["Subject"] = subject
-        email_msg.set_content(msg.content or "")
+
+        # Attach media files (images inline, others as attachments)
+        media_files = self._resolve_media(msg.media)
+        if media_files:
+            self._build_rich_email(email_msg, msg.content or "", media_files)
+        else:
+            email_msg.set_content(msg.content or "")
 
         in_reply_to = self._last_message_id_by_chat.get(to_addr)
         if in_reply_to:
@@ -142,6 +158,8 @@ class EmailChannel(BaseChannel):
 
         try:
             await asyncio.to_thread(self._smtp_send, email_msg)
+            if media_files:
+                logger.info(f"Sent email to {to_addr} with {len(media_files)} attachment(s)")
         except Exception as e:
             logger.error(f"Error sending email to {to_addr}: {e}")
             raise
@@ -166,6 +184,14 @@ class EmailChannel(BaseChannel):
             return False
         return True
 
+    def _make_ssl_context(self) -> ssl.SSLContext:
+        """Create an SSL context, optionally skipping certificate verification."""
+        ctx = ssl.create_default_context()
+        if not self.config.ssl_verify:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
     def _smtp_send(self, msg: EmailMessage) -> None:
         timeout = 30
         if self.config.smtp_use_ssl:
@@ -173,6 +199,7 @@ class EmailChannel(BaseChannel):
                 self.config.smtp_host,
                 self.config.smtp_port,
                 timeout=timeout,
+                context=self._make_ssl_context(),
             ) as smtp:
                 smtp.login(self.config.smtp_username, self.config.smtp_password)
                 smtp.send_message(msg)
@@ -180,7 +207,7 @@ class EmailChannel(BaseChannel):
 
         with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port, timeout=timeout) as smtp:
             if self.config.smtp_use_tls:
-                smtp.starttls(context=ssl.create_default_context())
+                smtp.starttls(context=self._make_ssl_context())
             smtp.login(self.config.smtp_username, self.config.smtp_password)
             smtp.send_message(msg)
 
@@ -231,18 +258,32 @@ class EmailChannel(BaseChannel):
         mailbox = self.config.imap_mailbox or "INBOX"
 
         if self.config.imap_use_ssl:
-            client = imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port)
+            client = imaplib.IMAP4_SSL(
+                self.config.imap_host,
+                self.config.imap_port,
+                ssl_context=self._make_ssl_context(),
+            )
         else:
             client = imaplib.IMAP4(self.config.imap_host, self.config.imap_port)
 
         try:
             client.login(self.config.imap_username, self.config.imap_password)
-            status, _ = client.select(mailbox)
+            logger.debug(f"IMAP login OK for {self.config.imap_username}")
+            status, select_data = client.select(mailbox)
             if status != "OK":
+                detail = select_data[0].decode(errors='replace') if select_data and select_data[0] else 'unknown'
+                logger.error(
+                    f"IMAP SELECT '{mailbox}' failed: status={status}, "
+                    f"detail={detail}. "
+                    f"Check that IMAP is enabled in your mailbox settings "
+                    f"and the authorization code is valid."
+                )
                 return messages
+            logger.debug(f"IMAP SELECT '{mailbox}' OK")
 
             status, data = client.search(None, *search_criteria)
             if status != "OK" or not data:
+                logger.debug(f"IMAP SEARCH returned status={status}, no results")
                 return messages
 
             ids = data[0].split()
@@ -308,12 +349,20 @@ class EmailChannel(BaseChannel):
 
                 if mark_seen:
                     client.store(imap_id, "+FLAGS", "\\Seen")
+        except imaplib.IMAP4.error as e:
+            logger.error(f"IMAP error for {self.config.imap_host}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching emails: {e}")
         finally:
             try:
                 client.logout()
             except Exception:
                 pass
 
+        if messages:
+            logger.info(f"Fetched {len(messages)} email(s) from {mailbox}")
+        else:
+            logger.debug(f"No new emails from {mailbox}")
         return messages
 
     @classmethod
@@ -401,3 +450,170 @@ class EmailChannel(BaseChannel):
         if subject.lower().startswith("re:"):
             return subject
         return f"{prefix}{subject}"
+
+    # ---- Media / attachment helpers ----
+
+    def _resolve_media(self, media: list[str] | None) -> list[tuple[Path, str, bytes]]:
+        """Resolve media paths to (path, mime_type, data) tuples.
+
+        Skips files that don't exist or exceed the size limit.
+        Compresses oversized images when Pillow is available.
+        Returns a list ready for attachment.
+        """
+        if not media:
+            return []
+
+        results: list[tuple[Path, str, bytes]] = []
+        for item in media:
+            # Skip data-URLs (not applicable for email attachments)
+            if item.startswith("data:"):
+                decoded = self._decode_data_url(item)
+                if decoded:
+                    mime, raw = decoded
+                    ext = mimetypes.guess_extension(mime) or ".bin"
+                    pseudo_path = Path(f"attachment{ext}")
+                    results.append((pseudo_path, mime, raw))
+                continue
+
+            path = Path(item)
+            if not path.exists() or not path.is_file():
+                logger.warning(f"Email media: skipping non-existent file {path}")
+                continue
+
+            mime, _ = mimetypes.guess_type(path.name)
+            if not mime:
+                mime = "application/octet-stream"
+
+            file_bytes = path.read_bytes()
+            if len(file_bytes) > self.config.media_max_bytes:
+                # Try compressing if it's an image
+                compressed = self._compress_image(path, self.config.media_max_bytes)
+                if compressed:
+                    results.append((path, compressed[0], compressed[1]))
+                    logger.info(
+                        f"Email media: compressed {path.name} "
+                        f"({len(file_bytes)} -> {len(compressed[1])} bytes)"
+                    )
+                else:
+                    logger.warning(
+                        f"Email media: skipping oversized file {path.name} "
+                        f"({len(file_bytes)} > {self.config.media_max_bytes})"
+                    )
+                continue
+
+            results.append((path, mime, file_bytes))
+            logger.debug(f"Email media: attached {path.name} ({mime}, {len(file_bytes)} bytes)")
+
+        return results
+
+    @staticmethod
+    def _decode_data_url(data_url: str) -> tuple[str, bytes] | None:
+        """Decode a data:mime;base64,... URL into (mime, raw_bytes)."""
+        try:
+            header, b64data = data_url.split(",", 1)
+            mime = header.split(":")[1].split(";")[0]
+            return (mime, base64.b64decode(b64data))
+        except Exception:
+            return None
+
+    def _build_rich_email(
+        self,
+        email_msg: EmailMessage,
+        text_body: str,
+        media_files: list[tuple[Path, str, bytes]],
+    ) -> None:
+        """Build a multipart email with inline images and file attachments.
+
+        Images (image/*) are embedded inline in an HTML body so they render
+        directly in the recipient's mail client.  Non-image files are added
+        as standard attachments.
+        """
+        inline_images: list[tuple[str, str, bytes]] = []  # (cid, mime, data)
+        attachments: list[tuple[Path, str, bytes]] = []
+
+        for path, mime, data in media_files:
+            if mime.startswith("image/"):
+                cid = f"img{len(inline_images)}@nanobot"
+                inline_images.append((cid, mime, data))
+            else:
+                attachments.append((path, mime, data))
+
+        # Build HTML body with inline images
+        escaped_text = html.escape(text_body).replace("\n", "<br>\n")
+        html_parts = [
+            "<html><body>",
+            f"<div style=\"font-family:sans-serif;white-space:pre-wrap\">{escaped_text}</div>",
+        ]
+        if inline_images:
+            html_parts.append("<br>")
+            for cid, _, _ in inline_images:
+                html_parts.append(
+                    f'<div><img src="cid:{cid}" style="max-width:100%;height:auto"></div><br>'
+                )
+        html_parts.append("</body></html>")
+        html_body = "\n".join(html_parts)
+
+        # Set plain-text as primary, HTML as alternative
+        email_msg.set_content(text_body)
+        email_msg.add_alternative(html_body, subtype="html")
+
+        # Embed inline images into the HTML part
+        if inline_images:
+            html_part = email_msg.get_payload()[-1]  # the text/html alternative
+            for cid, mime, data in inline_images:
+                maintype, subtype = mime.split("/", 1)
+                html_part.add_related(
+                    data,
+                    maintype=maintype,
+                    subtype=subtype,
+                    cid=f"<{cid}>",
+                )
+
+        # Add non-image files as regular attachments
+        for path, mime, data in attachments:
+            maintype, subtype = mime.split("/", 1)
+            email_msg.add_attachment(
+                data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=path.name,
+            )
+
+    @staticmethod
+    def _compress_image(
+        path: Path,
+        max_bytes: int,
+        *,
+        min_quality: int = 30,
+        max_dimension: int = 1920,
+    ) -> tuple[str, bytes] | None:
+        """Compress an image to fit within *max_bytes*.
+
+        Returns ``(mime, raw_bytes)`` on success, or ``None``.
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            logger.debug("_compress_image: Pillow not installed, cannot compress")
+            return None
+
+        try:
+            img = Image.open(path)
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
+
+            w, h = img.size
+            if max(w, h) > max_dimension:
+                ratio = max_dimension / max(w, h)
+                img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+
+            for quality in range(85, min_quality - 1, -5):
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=quality, optimize=True)
+                if buf.tell() <= max_bytes:
+                    return ("image/jpeg", buf.getvalue())
+
+            return None
+        except Exception as exc:
+            logger.warning(f"_compress_image: error processing {path}: {exc}")
+            return None

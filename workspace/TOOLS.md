@@ -76,10 +76,19 @@ message(content: str, channel: str = None, chat_id: str = None, media: list[str]
 When any tool (e.g. `exec`) produces output containing image file paths (`.png`, `.jpg`, etc.),
 the agent loop **automatically** attaches them to the outbound message as inline images.
 
-To take a screenshot, use the **windows-computer-use** skill via `exec`:
-```
-exec(command="python nanobot/skills/windows-computer-use/scripts/computer_use.py screenshot --path screenshots/screen.png")
-```
+### Choosing the right screenshot tool
+
+| Scenario | Skill | Command |
+|----------|-------|---------|
+| Desktop / full screen / native apps | **windows-computer-use** | `exec(command="python nanobot/skills/windows-computer-use/scripts/computer_use.py screenshot --path screenshots/screen.png")` |
+| Web page in browser-use session | **browser-use** | `exec(command="browser-use screenshot screenshots/page.png")` |
+
+### Decision rules
+- **Website / URL task** → use `browser-use` (headless Chromium, DOM-aware)
+- **Desktop app / OS task** → use `windows-computer-use` (pyautogui + PowerShell)
+- Do NOT take a desktop screenshot to inspect a headless browser session — use `browser-use screenshot` instead
+- Do NOT use `browser-use` to interact with native Windows applications
+
 The file path will appear in stdout, and the image will be sent to the user as an inline image in the chat. No extra flags needed.
 
 ## Background Tasks
