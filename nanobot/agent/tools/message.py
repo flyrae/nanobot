@@ -42,7 +42,12 @@ class MessageTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Send a message to the user. Use this when you want to communicate something."
+        return (
+            "Send a message to the user, optionally with file attachments. "
+            "This is the ONLY way to deliver files (images, documents, audio, video) to the user. "
+            "Use the 'media' parameter with file paths to attach files. "
+            "Do NOT use read_file to send files — that only reads content for your own analysis."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -101,12 +106,13 @@ class MessageTool(Tool):
             media=media or [],
             metadata={
                 "message_id": message_id,
-            }
+            },
         )
 
         try:
             await self._send_callback(msg)
-            self._sent_in_turn = True
+            if channel == self._default_channel and chat_id == self._default_chat_id:
+                self._sent_in_turn = True
             media_info = f" with {len(media)} attachments" if media else ""
             return f"Message sent to {channel}:{chat_id}{media_info}"
         except Exception as e:
